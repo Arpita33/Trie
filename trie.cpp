@@ -109,7 +109,7 @@ int CreateSparseNode(uint8_t byte1, int child1, uint8_t byte2, int child2)
         std::memcpy(&byteArray[v+9], &byte2, sizeof(uint8_t));
         std::memcpy(&byteArray[pos], &orderWord, sizeof(short));
 
-
+        allocatedPos+=BLOCK_SIZE; // advance the allocatedPos to the next block
 
         uint32_t SparseNodeOffset = reinterpret_cast<uintptr_t>(&byteArray[pos]);
         return SparseNodeOffset; //return address of the Sparse node
@@ -161,8 +161,69 @@ int splitNodeChildIndex(int trans)
     return trans & 0x7;
 }
 
-int createSplitNode()
+int createEmptySplitNode()
 {
+    int v = allocatedPos;
+    int pos = v+SPLIT_OFFSET;
+
+    // std::memcpy(&byteArray[v], &child1, sizeof(int32_t));
+    // std::memcpy(&byteArray[v+4], &child2, sizeof(int32_t));
+    // std::memcpy(&byteArray[v+8], &byte1, sizeof(uint8_t));
+    // std::memcpy(&byteArray[v+9], &byte2, sizeof(uint8_t));
+    // std::memcpy(&byteArray[pos], &orderWord, sizeof(short));
+
+    allocatedPos+=BLOCK_SIZE; // advance the allocatedPos to the next block
+
+    uint32_t SplitNodeOffset = reinterpret_cast<uintptr_t>(&byteArray[pos]);
+    return SplitNodeOffset; //return address of the Split node
+}
+
+void attachChildToSplitNode(int node, int trans, int newChild)
+{
+    int lead_bits = splitNodeMidIndex(trans);
+    int lead_position = 16+lead_bits*4;
+    int32_t arrayStartAddress = reinterpret_cast<uintptr_t>(byteArray);
+    int lead_start_index = node-SPLIT_OFFSET+lead_position - arrayStartAddress;
+    int32_t midNode;
+    //std::memcpy(&retrievedPointer, &byteArray[lead_position], sizeof(uint32_t));
+    std::memcpy(&midNode, &byteArray[lead_start_index], sizeof(int32_t));
+    if(midNode == NULL)
+    {
+        //no entry for leading 2 bits
+        midNode = createEmptySplitNode();
+        int mid_bits = splitNodeTailIndex(trans);
+        int mid_position = mid_bits*4;
+        int mid_start_index = midNode-SPLIT_OFFSET+mid_position - arrayStartAddress;
+        int tailNode = createEmptySplitNode();
+        int tail_bits = splitNodeChildIndex(trans);
+        int tail_position = tail_bits*4;
+        int tail_start_index = tailNode-SPLIT_OFFSET+tail_position - arrayStartAddress;
+        //sizeof(int) = 4
+        std::memcpy(&byteArray[tail_start_index], &newChild, sizeof(int32_t)); //link child to tail
+        std::memcpy(&byteArray[mid_start_index], &tailNode, sizeof(int32_t)); //link tail to mid
+        std::memcpy(&byteArray[lead_start_index], &midNode, sizeof(int32_t)); //link mid to lead
+        return;
+    }
+    int mid_bits = splitNodeTailIndex(trans);
+    int mid_position = mid_bits*4;
+    int mid_start_index = midNode-SPLIT_OFFSET+mid_position - arrayStartAddress;
+    int32_t tailNode;
+    std::memcpy(&tailNode, &byteArray[mid_start_index], sizeof(int32_t));
+    if(tailNode == NULL)
+    {
+        tailNode = createEmptySplitNode();
+        int tail_bits = splitNodeChildIndex(trans);
+        int tail_position = tail_bits*4;
+        int tail_start_index = tailNode-SPLIT_OFFSET+tail_position - arrayStartAddress;
+        std::memcpy(&byteArray[tail_start_index], &newChild, sizeof(int32_t)); //link child to tail
+        std::memcpy(&byteArray[mid_start_index], &tailNode, sizeof(int32_t)); //link tail to mid
+        return;
+    }
+
+    int tail_bits = splitNodeChildIndex(trans);
+    int tail_position = tail_bits*4;
+    int tail_start_index = tailNode-SPLIT_OFFSET+tail_position - arrayStartAddress;
+    std::memcpy(&byteArray[tail_start_index], &newChild, sizeof(int32_t)); //link child to tail
 
 }
 
@@ -219,11 +280,13 @@ int main()
 
     //testing split:
         // Define a character
-    char c = '~'; // ASCII value of 'A' is 65
+    // char c = '~'; // ASCII value of 'A' is 65
 
-    // Cast the character to uint8_t
-    uint8_t val = static_cast<uint8_t>(c);
-    splitNodeMidIndex(255);
-    splitNodeTailIndex(255);
-    splitNodeChildIndex(255);
+    // // Cast the character to uint8_t
+    // uint8_t val = static_cast<uint8_t>(c);
+    // splitNodeMidIndex(255);
+    // splitNodeTailIndex(255);
+    // splitNodeChildIndex(255);
+
+    std::cout<<sizeof(int)<<std::endl;
 }
