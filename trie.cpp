@@ -2,6 +2,7 @@
 #include <vector>
 #include <cstdint> // For uint8_t
 #include <cstring> // For memcpy
+#include <cassert>
 using namespace std;
 
 int allocatedPos = 0;
@@ -11,6 +12,8 @@ int CHAIN_MIN_OFFSET = 0;
 int CHAIN_MAX_OFFSET = BLOCK_SIZE - 5; //27
 
 int SPARSE_OFFSET = BLOCK_SIZE - 2; //=30
+int SPARSE_CHILD_COUNT = 6;
+
 int SPLIT_OFFSET = BLOCK_SIZE - 4; //=28
 
 const int size_of_byte_array = 2048;
@@ -178,13 +181,13 @@ int createEmptySplitNode()
     return SplitNodeOffset; //return address of the Split node
 }
 
-void attachChildToSplitNode(int node, int trans, int newChild)
+void attachChildToSplitNode(int node, uint8_t trans, int newChild)
 {
     int lead_bits = splitNodeMidIndex(trans);
     int lead_position = 16+lead_bits*4;
-    int32_t arrayStartAddress = reinterpret_cast<uintptr_t>(byteArray);
+    uint32_t arrayStartAddress = reinterpret_cast<uintptr_t>(byteArray);
     int lead_start_index = node-SPLIT_OFFSET+lead_position - arrayStartAddress;
-    int32_t midNode;
+    uint32_t midNode;
     //std::memcpy(&retrievedPointer, &byteArray[lead_position], sizeof(uint32_t));
     std::memcpy(&midNode, &byteArray[lead_start_index], sizeof(int32_t));
     if(midNode == NULL)
@@ -207,7 +210,7 @@ void attachChildToSplitNode(int node, int trans, int newChild)
     int mid_bits = splitNodeTailIndex(trans);
     int mid_position = mid_bits*4;
     int mid_start_index = midNode-SPLIT_OFFSET+mid_position - arrayStartAddress;
-    int32_t tailNode;
+    uint32_t tailNode;
     std::memcpy(&tailNode, &byteArray[mid_start_index], sizeof(int32_t));
     if(tailNode == NULL)
     {
@@ -215,16 +218,110 @@ void attachChildToSplitNode(int node, int trans, int newChild)
         int tail_bits = splitNodeChildIndex(trans);
         int tail_position = tail_bits*4;
         int tail_start_index = tailNode-SPLIT_OFFSET+tail_position - arrayStartAddress;
-        std::memcpy(&byteArray[tail_start_index], &newChild, sizeof(int32_t)); //link child to tail
-        std::memcpy(&byteArray[mid_start_index], &tailNode, sizeof(int32_t)); //link tail to mid
+        std::memcpy(&byteArray[tail_start_index], &newChild, sizeof(uint32_t)); //link child to tail
+        std::memcpy(&byteArray[mid_start_index], &tailNode, sizeof(uint32_t)); //link tail to mid
         return;
     }
 
     int tail_bits = splitNodeChildIndex(trans);
     int tail_position = tail_bits*4;
     int tail_start_index = tailNode-SPLIT_OFFSET+tail_position - arrayStartAddress;
-    std::memcpy(&byteArray[tail_start_index], &newChild, sizeof(int32_t)); //link child to tail
+    std::memcpy(&byteArray[tail_start_index], &newChild, sizeof(uint32_t)); //link child to tail
 
+}
+/**
+ * Insert the given newIndex in the base-6 encoded order word in the correct position with respect to the ordering.
+ *
+ * E.g.
+ *   - insertOrderWord(120, 3, 0) must return 1203 (decimal 48*6 + 3)
+ *   - insertOrderWord(120, 3, 1, ptr) must return 1230 (decimal 8*36 + 3*6 + 0)
+ *   - insertOrderWord(120, 3, 2, ptr) must return 1320 (decimal 1*216 + 3*36 + 12)
+ *   - insertOrderWord(120, 3, 3, ptr) must return 3120 (decimal 3*216 + 48)
+ */
+int insertInOrderWord(int order, int newIndex, int smallerCount)
+{
+    int r = 1;
+    for (int i = 0; i < smallerCount; ++i)
+        r *= 6;
+    int head = order / r;
+    int tail = order % r;
+    // insert newIndex after the ones we have passed (order % r) and before the remaining (order / r)
+    return tail + (head * 6 + newIndex) * r;
+}
+//Sparse node:
+//pointers
+//characters
+//orderword
+int addChildToSparse(int32_t node, uint8_t transitionByte, int newChild)
+{
+    int index;
+    int smallerCount = 0;
+    uint32_t arrayStartAddress = reinterpret_cast<uintptr_t>(byteArray);
+    // first check if this is an update and modify in-place if so
+    for (index = 0; index < SPARSE_CHILD_COUNT; ++index)
+    {
+        int check_ptr_index = node - SPARSE_OFFSET + (index*4) - arrayStartAddress;
+        uint32_t childptr;
+        std::memcpy(&childptr, &byteArray[check_ptr_index], sizeof(uint32_t));
+        if(childptr == NULL) break; // first free position -- not sure if this should be here or it should be in a separate for loop
+        // check if the transition matches an existing transition
+        // if so update child pointer
+        
+        int check_byte_index = node - SPARSE_CHILD_COUNT + index - arrayStartAddress;
+        uint8_t existingByte;
+        std::memcpy(&existingByte, &byteArray[check_byte_index], sizeof(uint8_t));
+        if(transitionByte == existingByte)
+        {
+            std::memcpy(&byteArray[check_ptr_index], &newChild, sizeof(uint32_t));
+            return node;
+        }
+        else if (existingByte < transitionByte)
+            ++smallerCount;
+
+    }
+    int existingchildCount = index;
+    if (existingchildCount == SPARSE_CHILD_COUNT)
+    {
+            // Node is full. Switch to split
+            int split = createEmptySplitNode();
+            for (int i = 0; i < SPARSE_CHILD_COUNT; ++i)
+            {
+                uint8_t byte;
+                int byte_index = node - SPARSE_CHILD_COUNT + index - arrayStartAddress;
+                std::memcpy(&byte, &byteArray[byte_index], sizeof(uint8_t));
+
+                int32_t pointer;
+                int ptr_index = node - SPARSE_OFFSET + index*4 - arrayStartAddress;
+                std::memcpy(&pointer, &byteArray[ptr_index], sizeof(int32_t));
+
+                attachChildToSplitNode(split,byte,pointer);
+            }
+            attachChildToSplitNode(split,transitionByte,newChild);
+            return split;
+
+    }
+
+    //put Byte at node - sparse_children_count+childcount
+    int byte_index = node - SPARSE_CHILD_COUNT + existingchildCount - arrayStartAddress;
+    std::memcpy(&byteArray[byte_index], &transitionByte, sizeof(uint8_t));
+    //Create updated Order Word
+    short old_order;
+    int order_idx = node-arrayStartAddress;
+    std::memcpy(&old_order, &byteArray[order_idx], sizeof(short));
+    short newOrder = insertInOrderWord(old_order, existingchildCount, smallerCount);
+
+    //Write the address
+    int ptr_index = node - SPARSE_OFFSET + existingchildCount*4 - arrayStartAddress;
+    std::memcpy(&byteArray[ptr_index], &newChild, sizeof(int32_t));
+    //Write the OrderWord at SPARSE_OFFSET
+    std::memcpy(&byteArray[order_idx], &newOrder, sizeof(short));
+    return node;
+
+    
+}
+int attachChildToChain()
+{
+    
 }
 
 int main()
