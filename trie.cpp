@@ -108,8 +108,8 @@ int CreateSparseNode(uint8_t byte1, int child1, uint8_t byte2, int child2)
         short orderWord = (short)(1*6+0);
         std::memcpy(&byteArray[v], &child1, sizeof(int32_t));
         std::memcpy(&byteArray[v+4], &child2, sizeof(int32_t));
-        std::memcpy(&byteArray[v+8], &byte1, sizeof(uint8_t));
-        std::memcpy(&byteArray[v+9], &byte2, sizeof(uint8_t));
+        std::memcpy(&byteArray[v+SPARSE_CHILD_COUNT*4], &byte1, sizeof(uint8_t));
+        std::memcpy(&byteArray[v+SPARSE_CHILD_COUNT*4+1], &byte2, sizeof(uint8_t));
         std::memcpy(&byteArray[pos], &orderWord, sizeof(short));
 
         allocatedPos+=BLOCK_SIZE; // advance the allocatedPos to the next block
@@ -117,13 +117,53 @@ int CreateSparseNode(uint8_t byte1, int child1, uint8_t byte2, int child2)
         uint32_t SparseNodeOffset = reinterpret_cast<uintptr_t>(&byteArray[pos]);
         return SparseNodeOffset; //return address of the Sparse node
 }
+int attachChildToSparse(int32_t node, uint8_t transitionByte, int newChild);
 void printSparseNode(int node)
 {
+    //Sparse node:
+    //pointers
+    //characters
+    //orderword
     uint32_t ArrayStart = reinterpret_cast<uintptr_t>(&byteArray[0]);
     int orderwordIdx = node - ArrayStart;
-    short orderword;
+    short orderWord;
     std::memcpy( &orderWord, &byteArray[orderwordIdx], sizeof(short));
-    printf("Order word: %d", orderWord);
+    printf("Order word: %d\n", orderWord);
+    uint8_t byte1, byte2;
+    int bIdx1 = node - SPARSE_OFFSET + SPARSE_CHILD_COUNT*4 -ArrayStart;
+    int bIdx2 = bIdx1+1;
+    std::memcpy( &byte1, &byteArray[bIdx1], sizeof(uint8_t));
+    std::memcpy( &byte2, &byteArray[bIdx2], sizeof(uint8_t));
+    printf("%c, %c\n", byte1, byte2);
+    
+    int ind = node -SPARSE_OFFSET - ArrayStart;
+    uint32_t childptr1, childptr2;
+    std::memcpy(&childptr1, &byteArray[ind], sizeof(uint32_t));
+    std::memcpy(&childptr2, &byteArray[ind+4], sizeof(uint32_t));
+
+    uint32_t contentStartPtr = reinterpret_cast<uintptr_t>(&contentArray[0]);
+    int child_index = (childptr1 - contentStartPtr)/sizeof(int32_t);
+    printf("%d\n",child_index);
+    printf("%d\n",contentArray[child_index]);
+    
+    child_index = (childptr2 - contentStartPtr)/sizeof(int32_t);
+    printf("%d\n",child_index);
+    printf("%d\n",contentArray[child_index]);
+
+    char c = 'D'; // ASCII value of 'A' is 65
+    uint8_t byte3 = static_cast<uint8_t>(c);
+    uint32_t child3 = reinterpret_cast<uintptr_t>(&contentArray[0]);
+    attachChildToSparse(node,byte3,child3);
+        
+    std::memcpy( &orderWord, &byteArray[orderwordIdx], sizeof(short));
+    printf("Order word: %d\n", orderWord);
+    std::memcpy( &byte2, &byteArray[bIdx2+1], sizeof(uint8_t));
+    printf("%c\n",  byte2);
+    std::memcpy(&childptr2, &byteArray[ind+8], sizeof(uint32_t));
+    child_index = (childptr2 - contentStartPtr)/sizeof(int32_t);
+    printf("%d\n",child_index);
+    printf("%d\n",contentArray[child_index]);
+
 }
 
 void printBinary(int number) {
@@ -411,14 +451,14 @@ int getContentFromSplit(int split, uint8_t u8Value)
     uint32_t childNode;
     std::memcpy(&childNode, &byteArray[split_index_child], sizeof(uint32_t));
 
+    //uint32_t contentStartPtr = reinterpret_cast<uintptr_t>(&contentArray[0]);
     int child_index = (childNode - contentStartPtr)/sizeof(int32_t);
     printf("%d\n",child_index);
     printf("%d\n",contentArray[child_index]);
 }
 
 
-int main()
-{
+
     /*testing chain node:
     contentArray[0]=12345;
     // Define a character
@@ -501,12 +541,13 @@ int main()
     // childPointer = reinterpret_cast<uintptr_t>(&contentArray[2]);
     // attachChildToSplit(split,u8Value,childPointer);
     // getContentFromSplit(split,u8Value);
-
+int main()
+{
 
     //testing Create Sparse Node
-    contentArray[0]=12345;
-    contentArray[1]=9999;
-    contentArray[2]=1011347;
+    contentArray[0]=100;
+    contentArray[1]=200;
+    contentArray[2]=300;
     // Define a character
     char c = 'A'; // ASCII value of 'A' is 65
     uint8_t byte1 = static_cast<uint8_t>(c);
