@@ -6,15 +6,15 @@
 using namespace std;
 
 int allocatedPos = 0;
-int BLOCK_SIZE = 32;
-int LAST_POINTER_OFFSET = BLOCK_SIZE - 4;
-int CHAIN_MIN_OFFSET = 0;
-int CHAIN_MAX_OFFSET = BLOCK_SIZE - 5; //27
+const int BLOCK_SIZE = 32;
+const int LAST_POINTER_OFFSET = BLOCK_SIZE - 4;
+const int CHAIN_MIN_OFFSET = 0;
+const int CHAIN_MAX_OFFSET = BLOCK_SIZE - 5; //27
 
-int SPARSE_OFFSET = BLOCK_SIZE - 2; //=30
-int SPARSE_CHILD_COUNT = 6;
+const int SPARSE_OFFSET = BLOCK_SIZE - 2; //=30
+const int SPARSE_CHILD_COUNT = 6;
 
-int SPLIT_OFFSET = BLOCK_SIZE - 4; //=28
+const int SPLIT_OFFSET = BLOCK_SIZE - 4; //=28
 
 const int size_of_byte_array = 2048;
 uint8_t byteArray[size_of_byte_array];
@@ -69,7 +69,7 @@ int createNewChainNode(uint8_t transitionByte, int childPointer)
 
 }
 
-int expandOrCreateNewChain(uint8_t transitionByte, int newChild)
+int expandOrCreateChainNode(uint8_t transitionByte, int newChild)
 {
         if (isExpandableChain(newChild))
         {
@@ -117,6 +117,15 @@ int CreateSparseNode(uint8_t byte1, int child1, uint8_t byte2, int child2)
         uint32_t SparseNodeOffset = reinterpret_cast<uintptr_t>(&byteArray[pos]);
         return SparseNodeOffset; //return address of the Sparse node
 }
+void printSparseNode(int node)
+{
+    uint32_t ArrayStart = reinterpret_cast<uintptr_t>(&byteArray[0]);
+    int orderwordIdx = node - ArrayStart;
+    short orderword;
+    std::memcpy( &orderWord, &byteArray[orderwordIdx], sizeof(short));
+    printf("Order word: %d", orderWord);
+}
+
 void printBinary(int number) {
     // We will print 32 bits (for a 32-bit integer)
     for (int i = 31; i >= 0; i--) {
@@ -131,10 +140,10 @@ void printBinary(int number) {
  */
 int splitNodeMidIndex(int trans)
 {
-    printBinary(trans);
+    //printBinary(trans);
     // first 2 bits of the 2-3-3 split
-    int r = (trans >> 6) & 0x3;
-    std:: cout<< r << std::endl;
+    //int r = (trans >> 6) & 0x3;
+    //std:: cout<< r << std::endl;
     return (trans >> 6) & 0x3;
 }
 
@@ -144,9 +153,9 @@ int splitNodeMidIndex(int trans)
  */
 int splitNodeTailIndex(int trans)
 {
-    printBinary(trans);
-    int r = (trans >> 3) & 0x7;
-    std:: cout<< r << std::endl;
+    // printBinary(trans);
+    // int r = (trans >> 3) & 0x7;
+    // std:: cout<< r << std::endl;
     // second 3 bits of the 2-3-3 split
     return (trans >> 3) & 0x7;
 }
@@ -157,9 +166,9 @@ int splitNodeTailIndex(int trans)
  */
 int splitNodeChildIndex(int trans)
 {
-    printBinary(trans);
-    int r = (trans) & 0x7;
-    std:: cout<< r << std::endl;
+    // printBinary(trans);
+    // int r = (trans) & 0x7;
+    // std:: cout<< r << std::endl;
     // third 3 bits of the 2-3-3 split
     return trans & 0x7;
 }
@@ -181,17 +190,17 @@ int createEmptySplitNode()
     return SplitNodeOffset; //return address of the Split node
 }
 
-void attachChildToSplitNode(int node, uint8_t trans, int newChild)
+void attachChildToSplit(int node, uint8_t trans, int newChild)
 {
     int lead_bits = splitNodeMidIndex(trans);
     int lead_position = 16+lead_bits*4;
     uint32_t arrayStartAddress = reinterpret_cast<uintptr_t>(byteArray);
     int lead_start_index = node-SPLIT_OFFSET+lead_position - arrayStartAddress;
     uint32_t midNode;
-    //std::memcpy(&retrievedPointer, &byteArray[lead_position], sizeof(uint32_t));
     std::memcpy(&midNode, &byteArray[lead_start_index], sizeof(int32_t));
     if(midNode == NULL)
     {
+        printf("No entry for mid and tail nodes\n");
         //no entry for leading 2 bits
         midNode = createEmptySplitNode();
         int mid_bits = splitNodeTailIndex(trans);
@@ -214,6 +223,7 @@ void attachChildToSplitNode(int node, uint8_t trans, int newChild)
     std::memcpy(&tailNode, &byteArray[mid_start_index], sizeof(int32_t));
     if(tailNode == NULL)
     {
+        printf("No entry for tail node\n");
         tailNode = createEmptySplitNode();
         int tail_bits = splitNodeChildIndex(trans);
         int tail_position = tail_bits*4;
@@ -222,7 +232,7 @@ void attachChildToSplitNode(int node, uint8_t trans, int newChild)
         std::memcpy(&byteArray[mid_start_index], &tailNode, sizeof(uint32_t)); //link tail to mid
         return;
     }
-
+    printf("New child added to tail\n");
     int tail_bits = splitNodeChildIndex(trans);
     int tail_position = tail_bits*4;
     int tail_start_index = tailNode-SPLIT_OFFSET+tail_position - arrayStartAddress;
@@ -252,7 +262,7 @@ int insertInOrderWord(int order, int newIndex, int smallerCount)
 //pointers
 //characters
 //orderword
-int addChildToSparse(int32_t node, uint8_t transitionByte, int newChild)
+int attachChildToSparse(int32_t node, uint8_t transitionByte, int newChild)
 {
     int index;
     int smallerCount = 0;
@@ -294,9 +304,9 @@ int addChildToSparse(int32_t node, uint8_t transitionByte, int newChild)
                 int ptr_index = node - SPARSE_OFFSET + index*4 - arrayStartAddress;
                 std::memcpy(&pointer, &byteArray[ptr_index], sizeof(int32_t));
 
-                attachChildToSplitNode(split,byte,pointer);
+                attachChildToSplit(split,byte,pointer);
             }
-            attachChildToSplitNode(split,transitionByte,newChild);
+            attachChildToSplit(split,transitionByte,newChild);
             return split;
 
     }
@@ -319,10 +329,93 @@ int addChildToSparse(int32_t node, uint8_t transitionByte, int newChild)
 
     
 }
-int attachChildToChain()
+int attachChildToChain(int node, uint8_t transitionByte, int newChild) 
 {
-    
+    int existingByte;
+    uint32_t arrayStartAddress = reinterpret_cast<uintptr_t>(byteArray);
+    int existingByteIndex = node - arrayStartAddress;
+    std::memcpy(&existingByte, &byteArray[existingByteIndex], sizeof(uint8_t));
+    if (transitionByte == existingByte)
+    {
+        // This will only be called if new child is different from old, and the update is not on the final child
+        // where we can change it in place (see attachChild). We must always create something new.
+        // If the child is a chain, we can expand it (since it's a different value, its branch must be new and
+        // nothing can already reside in the rest of the block).
+        return expandOrCreateChainNode(transitionByte, newChild);
+    }
+
+    // The new transition is different, so we no longer have only one transition. Change type.
+    int existingChild = node + 1;
+    int existingChildIndex = existingChild - arrayStartAddress;
+    if (offset(existingChild) == LAST_POINTER_OFFSET)
+    {
+        //existingChild = getInt(existingChild);
+        //if at the last byte of chain node, pass the child pointer (e.g. leaf node ptr)
+        //to the Sparse Node 
+        std::memcpy(&existingChild, &byteArray[existingChildIndex], sizeof(int32_t));
+    }
+    return CreateSparseNode(existingByte, existingChild, transitionByte, newChild);
 }
+
+/**
+ * Attach a child to the given non-content node. This may be an update for an existing branch, or a new child for
+ * the node. An update _is_ required (i.e. this is only called when the newChild pointer is not the same as the
+ * existing value).
+ */
+int attachChild(int node, uint8_t trans, int newChild)
+{
+    //assert !isLeaf(node) : "attachChild cannot be used on content nodes.";
+
+    switch (offset(node))
+    {
+        //case PREFIX_OFFSET:
+         //   assert false : "attachChild cannot be used on content nodes.";
+        case SPARSE_OFFSET:
+            return attachChildToSparse(node, trans, newChild);
+        case SPLIT_OFFSET:
+            attachChildToSplit(node, trans, newChild);
+            return node;
+        case LAST_POINTER_OFFSET - 1:
+            // If this is the last character in a Chain block, we can modify the child in-place
+            // if (trans == getUnsignedByte(node))
+            // {
+            //     putIntVolatile(node + 1, newChild);
+            //     return node;
+            // }
+            // else pass through
+        default:
+            return attachChildToChain(node, trans, newChild);
+    }
+}
+
+int getContentFromSplit(int split, uint8_t u8Value)
+{
+    int i_mid = splitNodeMidIndex(u8Value);
+    int i_tail = splitNodeTailIndex(u8Value);
+    int i_child = splitNodeChildIndex(u8Value);
+    //uintptr_t childpointer = reinterpret_cast<uintptr_t>(&contentArray[0]);
+    // int32_t childpointer = reinterpret_cast<int32_t>(childpointer);
+    uint32_t contentStartPtr = reinterpret_cast<uintptr_t>(&contentArray[0]);
+
+    uint32_t arrayStartAddress = reinterpret_cast<uintptr_t>(byteArray);
+
+    int split_index_mid = split - arrayStartAddress - 12 + i_mid*4;
+    uint32_t midNode;
+    std::memcpy(&midNode, &byteArray[split_index_mid], sizeof(uint32_t));
+
+    int split_index_tail = midNode - arrayStartAddress - SPLIT_OFFSET + i_tail*4;
+    uint32_t tailNode;
+    std::memcpy(&tailNode, &byteArray[split_index_tail], sizeof(uint32_t));
+
+    int split_index_child = tailNode - arrayStartAddress - SPLIT_OFFSET + i_child*4;
+    uint32_t childNode;
+    std::memcpy(&childNode, &byteArray[split_index_child], sizeof(uint32_t));
+
+    int child_index = (childNode - contentStartPtr)/sizeof(int32_t);
+    printf("%d\n",child_index);
+    printf("%d\n",contentArray[child_index]);
+}
+
 
 int main()
 {
@@ -375,15 +468,54 @@ int main()
     std::cout<<sizeof(int32_t)<<std::endl;
     std::cout<<sizeof(uint8_t)<<std::endl;*/
 
-    //testing split:
-        // Define a character
-    // char c = '~'; // ASCII value of 'A' is 65
 
-    // // Cast the character to uint8_t
-    // uint8_t val = static_cast<uint8_t>(c);
-    // splitNodeMidIndex(255);
-    // splitNodeTailIndex(255);
-    // splitNodeChildIndex(255);
 
-    std::cout<<sizeof(int)<<std::endl;
+    //std::cout<<sizeof(int)<<std::endl;
+
+    // uint32_t childpointer = reinterpret_cast<uintptr_t>(&byteArray[0]);
+    // if(childpointer!=0)
+    // {
+    //     std::cout<<childpointer<<" "<<sizeof(childpointer)<<std::endl;
+    // }
+
+
+
+    //testing split node
+    // contentArray[0]=12345;
+    // contentArray[1]=9999;
+    // contentArray[2]=1011347;
+    // // Define a character
+    // char c = 'A'; // ASCII value of 'A' is 65
+    // uint8_t u8Value = static_cast<uint8_t>(c);
+    // printBinary(u8Value);
+    // int split = createEmptySplitNode();
+    // int off = offset(split);
+    // //printf("offset: %d\n",off);
+    // uint32_t childPointer = reinterpret_cast<uintptr_t>(&contentArray[1]);
+    // attachChildToSplit(split,u8Value,childPointer);
+    // getContentFromSplit(split,u8Value);
+
+    // c = 'Z'; // ASCII value of 'A' is 65
+    // u8Value = static_cast<uint8_t>(c);
+    // printBinary(u8Value);
+    // childPointer = reinterpret_cast<uintptr_t>(&contentArray[2]);
+    // attachChildToSplit(split,u8Value,childPointer);
+    // getContentFromSplit(split,u8Value);
+
+
+    //testing Create Sparse Node
+    contentArray[0]=12345;
+    contentArray[1]=9999;
+    contentArray[2]=1011347;
+    // Define a character
+    char c = 'A'; // ASCII value of 'A' is 65
+    uint8_t byte1 = static_cast<uint8_t>(c);
+    uint32_t child1 = reinterpret_cast<uintptr_t>(&contentArray[1]);
+    c = 'B'; // ASCII value of 'A' is 65
+    uint8_t byte2 = static_cast<uint8_t>(c);
+    uint32_t child2 = reinterpret_cast<uintptr_t>(&contentArray[2]);
+    int sparse = CreateSparseNode(byte1, child1, byte2, child2);
+    printSparseNode(sparse);
+
+
 }
