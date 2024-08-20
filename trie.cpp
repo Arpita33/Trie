@@ -3,8 +3,12 @@
 #include <cstdint> // For uint8_t
 #include <cstring> // For memcpy
 #include <cassert>
-using namespace std;
 
+#define INT unit32_t
+#define BYTE uint8_t
+
+using namespace std;
+//what does the root start off as?
 int allocatedPos = 0;
 const int BLOCK_SIZE = 32;
 const int LAST_POINTER_OFFSET = BLOCK_SIZE - 4;
@@ -13,14 +17,15 @@ const int CHAIN_MAX_OFFSET = BLOCK_SIZE - 5; //27
 
 const int SPARSE_OFFSET = BLOCK_SIZE - 2; //=30
 const int SPARSE_CHILD_COUNT = 6;
-
+const int SPARSE_BYTES_OFFSET = -6;
 const int SPLIT_OFFSET = BLOCK_SIZE - 4; //=28
 
 const int size_of_byte_array = 2048;
 uint8_t byteArray[size_of_byte_array];
 int contentArray[10];
-
-
+const int NONE = 0;
+int contentElements = 0;
+int root = 0;
 
 /**
  * Pointer offset for a node pointer.
@@ -28,6 +33,22 @@ int contentArray[10];
 int offset(int pos)
 {
     return pos & (BLOCK_SIZE - 1); // returns the least significant 5 offset bits
+}
+/*
+     Reading node content
+     */
+
+bool isNull(int node)
+{
+    return node == NONE;
+}
+bool isLeaf(int node)
+{
+    return node < NONE;
+}
+bool isNullOrLeaf(int node)
+{
+    return node <= NONE;
 }
 bool isExpandableChain(int newChild)
 {
@@ -456,6 +477,100 @@ int getContentFromSplit(int split, uint8_t u8Value)
     printf("%d\n",child_index);
     printf("%d\n",contentArray[child_index]);
 }
+int getSparseChild(int node, uint8_t transition)
+{
+    uint32_t ArrayStart = reinterpret_cast<uintptr_t>(&byteArray[0]);
+    for (int i = 0; i < SPARSE_CHILD_COUNT; ++i)
+    {
+        uint8_t byte;
+        int bIdx = node + SPARSE_BYTES_OFFSET - ArrayStart + i;
+        std::memcpy( &byte, &byteArray[bIdx], sizeof(uint8_t));
+        if(byte==transition)
+        {
+            int ind = node - SPARSE_OFFSET - ArrayStart + i*4;
+            uint32_t childptr;
+            std::memcpy(&childptr, &byteArray[ind], sizeof(uint32_t));
+            return childptr;
+        }
+    }
+    return NONE;
+}
+int getSplitChild(int node, uint8_t transition)
+{
+    int i_mid = splitNodeMidIndex(transition);
+    int i_tail = splitNodeTailIndex(transition);
+    int i_child = splitNodeChildIndex(transition);
+
+    uint32_t arrayStartAddress = reinterpret_cast<uintptr_t>(byteArray);
+    int split_index_mid = node - arrayStartAddress - 12 + i_mid*4;
+    uint32_t midNode;
+    std::memcpy(&midNode, &byteArray[split_index_mid], sizeof(uint32_t));
+    if (isNull(midNode))
+    {
+        return NONE;
+    }
+
+    int split_index_tail = midNode - arrayStartAddress - SPLIT_OFFSET + i_tail*4;
+    uint32_t tailNode;
+    std::memcpy(&tailNode, &byteArray[split_index_tail], sizeof(uint32_t));
+    if (isNull(tailNode))
+    {
+        return NONE;
+    }
+
+    int split_index_child = tailNode - arrayStartAddress - SPLIT_OFFSET + i_child*4;
+    uint32_t childNode;
+    std::memcpy(&childNode, &byteArray[split_index_child], sizeof(uint32_t));
+    return childNode;
+
+}
+int getChild(int node, uint8_t transition)
+{
+    int off = offset(node);
+    switch (off)
+    {
+        case SPARSE_OFFSET:
+            return getSparseChild(node, trans);
+        case SPLIT_OFFSET:
+            return getSplitChild(node, trans);
+        case CHAIN_MAX_OFFSET:
+            uint8_t existing_byte;
+            std::memcpy(&existing_byte, &byteArray[CHAIN_MAX_OFFSET], sizeof(uint8_t));
+            //if (trans != getUnsignedByte(node))
+            if(existing_byte!=trans)
+                return NONE;
+            //return getInt(node + 1);
+            uint32_t childptr;
+            std::memcpy(&childptr, &byteArray[CHAIN_MAX_OFFSET+1], sizeof(uint32_t));
+            return childptr;
+        default:
+            uint8_t existing_byte;
+            std::memcpy(&existing_byte, &byteArray[off], sizeof(uint8_t));
+            if (trans != existing_byte) //if middle transition in chain node does not match
+                return NONE;
+            return node + 1; //return next transition in chain node until offset == CHAIN_MAX_OFFSET
+    }
+}
+
+// int simpleInsert(int node, int key, int value) // without prefix node
+// {
+//     //start as leaf node -> chain -> sparse -> split
+//     if(isNullOrLeaf(node)) // first part of followcontenttransition
+//     {
+
+//     }
+//     //add stuff for prefix
+
+// }
+
+// int createPrefixNode(int contentIndex, int child)
+// {
+//     if(isNullOrLeaf(child))
+//     {
+//         return -100000; // "Prefix node cannot reference a childless node."
+//     }
+
+// }
 
 
 
