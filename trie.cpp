@@ -530,28 +530,54 @@ int getChild(int node, uint8_t transition)
     switch (off)
     {
         case SPARSE_OFFSET:
-            return getSparseChild(node, trans);
+            return getSparseChild(node, transition);
         case SPLIT_OFFSET:
-            return getSplitChild(node, trans);
+            return getSplitChild(node, transition);
         case CHAIN_MAX_OFFSET:
             uint8_t existing_byte;
             std::memcpy(&existing_byte, &byteArray[CHAIN_MAX_OFFSET], sizeof(uint8_t));
             //if (trans != getUnsignedByte(node))
-            if(existing_byte!=trans)
+            if(existing_byte!=transition)
                 return NONE;
             //return getInt(node + 1);
             uint32_t childptr;
             std::memcpy(&childptr, &byteArray[CHAIN_MAX_OFFSET+1], sizeof(uint32_t));
             return childptr;
         default:
-            uint8_t existing_byte;
-            std::memcpy(&existing_byte, &byteArray[off], sizeof(uint8_t));
-            if (trans != existing_byte) //if middle transition in chain node does not match
+            uint8_t existing_byte2;
+            std::memcpy(&existing_byte2, &byteArray[off], sizeof(uint8_t));
+            if (transition != existing_byte2) //if middle transition in chain node does not match
                 return NONE;
             return node + 1; //return next transition in chain node until offset == CHAIN_MAX_OFFSET
     }
 }
-
+int putRecursive(int node, const std::string& key, int value) 
+{
+    if (key.empty()) {
+        printf("Here\n");
+        //end of key reached
+        //put the content here
+        return 0;
+    }
+    //get character
+    char c = key[0];
+    uint8_t transitionbyte= static_cast<uint8_t>(c);
+    int child = getChild(node, transitionbyte);
+    int newChild = putRecursive(child, key.substr(1), value);
+    if(child==newChild)
+        return node;
+    if(isNullOrLeaf(newChild)) // first part of followcontenttransition
+    {
+        return expandOrCreateChainNode(newChild, transitionbyte);
+    }
+    //might need to change node with prefix implementations
+    return attachChild(node, transitionbyte, newChild);
+    //will return chain as new child in upper level, 
+    //then in the upper level will check if newChid is not null or leaf
+    // attach child will be called to attach this to parent
+    //then return parent
+    
+}
 // int simpleInsert(int node, int key, int value) // without prefix node
 // {
 //     //start as leaf node -> chain -> sparse -> split
@@ -572,7 +598,19 @@ int getChild(int node, uint8_t transition)
 
 // }
 
-
+void printStringRecursively(const std::string& str) {
+    // Base case: if the string is empty, return
+    if (str.empty()) {
+        printf("Here\n");
+        return;
+    }
+    
+    // Print the first character
+    std::cout << str[0] << std::endl;
+    
+    // Recursively call the function with the rest of the string
+    printStringRecursively(str.substr(1));
+}
 
     /*testing chain node:
     contentArray[0]=12345;
@@ -660,18 +698,19 @@ int main()
 {
 
     //testing Create Sparse Node
-    contentArray[0]=100;
-    contentArray[1]=200;
-    contentArray[2]=300;
-    // Define a character
-    char c = 'A'; // ASCII value of 'A' is 65
-    uint8_t byte1 = static_cast<uint8_t>(c);
-    uint32_t child1 = reinterpret_cast<uintptr_t>(&contentArray[1]);
-    c = 'B'; // ASCII value of 'A' is 65
-    uint8_t byte2 = static_cast<uint8_t>(c);
-    uint32_t child2 = reinterpret_cast<uintptr_t>(&contentArray[2]);
-    int sparse = CreateSparseNode(byte1, child1, byte2, child2);
-    printSparseNode(sparse);
+    // contentArray[0]=100;
+    // contentArray[1]=200;
+    // contentArray[2]=300;
+    // // Define a character
+    // char c = 'A'; // ASCII value of 'A' is 65
+    // uint8_t byte1 = static_cast<uint8_t>(c);
+    // uint32_t child1 = reinterpret_cast<uintptr_t>(&contentArray[1]);
+    // c = 'B'; // ASCII value of 'A' is 65
+    // uint8_t byte2 = static_cast<uint8_t>(c);
+    // uint32_t child2 = reinterpret_cast<uintptr_t>(&contentArray[2]);
+    // int sparse = CreateSparseNode(byte1, child1, byte2, child2);
+    // printSparseNode(sparse);
 
+    printStringRecursively("ABCDE");
 
 }
