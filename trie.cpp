@@ -52,13 +52,16 @@ bool isNullOrLeaf(int node)
 }
 bool isExpandableChain(int newChild)
 {
-    int newOffset = offset(newChild);
+    int copy = newChild;
+    int newOffset = offset(copy);
     //return newChild > 0 && newChild - 1 > NONE && newOffset > CHAIN_MIN_OFFSET && newOffset <= CHAIN_MAX_OFFSET;
     //what should we set NONE here to?
     //std::cout << "newoffset" << newOffset<< std::endl;
-    return newOffset > CHAIN_MIN_OFFSET && newOffset <= CHAIN_MAX_OFFSET;
+    bool ret =  newChild > 0; //&& newChild - 1 > NONE && newOffset > CHAIN_MIN_OFFSET && newOffset <= CHAIN_MAX_OFFSET;
+    //cout<<newChild<<" Return from isexpandable: "<<ret<<endl;
+    return ret;
 }
-int createNewChainNode(uint8_t transitionByte, int childPointer)
+uint32_t createNewChainNode(uint8_t transitionByte, int childPointer)
 {
     int v = allocatedPos;
 
@@ -86,14 +89,18 @@ int createNewChainNode(uint8_t transitionByte, int childPointer)
 
     //return allocatedPos;
     uint32_t ChainNodeOffset = reinterpret_cast<uintptr_t>(&byteArray[pos]);
+    cout<<"Chain Node: " <<ChainNodeOffset<<endl;
+    std::cout<< "Offset: " <<offset(ChainNodeOffset)<<std::endl;
     return ChainNodeOffset; //return address of the chain node
 
 }
 
-int expandOrCreateChainNode(uint8_t transitionByte, int newChild)
+uint32_t expandOrCreateChainNode(uint8_t transitionByte, uint32_t newChild)
 {
+    cout<<"Inside expand or create: "<<newChild<<endl;
         if (isExpandableChain(newChild))
         {
+            printf("New Child Expandable. \n");
             // attach as a new character in child node
             //int newNode = newChild - 1;//newNode is the pointer here
             uint32_t arrayStartAddress = reinterpret_cast<uintptr_t>(byteArray);
@@ -108,8 +115,11 @@ int expandOrCreateChainNode(uint8_t transitionByte, int newChild)
             std::cout<< "Offset: " <<offset(newChild-1)<<std::endl;
             return newChild-1;
         }
-
-        return createNewChainNode(transitionByte, newChild);
+        printf("Creating a new chain node. \n");
+        uint32_t ret = createNewChainNode(transitionByte, newChild);
+        //printf("new chain node: %d \n",ret);
+        cout<<"new chain node: "<<ret<<endl;
+        return ret;
     
 }
 
@@ -445,11 +455,13 @@ int attachChildToChain(int node, uint8_t transitionByte, int newChild)
 int attachChild(int node, uint8_t trans, int newChild)
 {
     //assert !isLeaf(node) : "attachChild cannot be used on content nodes.";
-
+    cout<<"Inside attach child\n"<<endl;
     switch (offset(node))
     {
         //case PREFIX_OFFSET:
          //   assert false : "attachChild cannot be used on content nodes.";
+        case NONE: //attach first child to root, where root is empty
+            return expandOrCreateChainNode(trans, newChild);
         case SPARSE_OFFSET:
             return attachChildToSparse(node, trans, newChild);
         case SPLIT_OFFSET:
@@ -462,7 +474,7 @@ int attachChild(int node, uint8_t trans, int newChild)
             //     putIntVolatile(node + 1, newChild);
             //     return node;
             // }
-
+            cout<<"Last character in a chain block: "<<offset(node)<<endl;
             uint8_t existing_byte;
             std::memcpy(&existing_byte, &byteArray[CHAIN_MAX_OFFSET], sizeof(uint8_t));
             if(existing_byte==trans)
@@ -472,6 +484,7 @@ int attachChild(int node, uint8_t trans, int newChild)
             } 
             // else pass through
         default:
+            cout<<"default "<<offset(node)<<endl;
             return attachChildToChain(node, trans, newChild);
     }
 }
@@ -579,7 +592,7 @@ int getChild(int node, uint8_t transition)
     }
 }
 //start as leaf node -> chain -> sparse -> split
-int putRecursive(int node, const std::string& key, int value) 
+uint32_t putRecursive(int node, const std::string& key, int value) 
 {
     if (key.empty()) {
         printf("Putting Value in Content Array\n");
@@ -588,26 +601,69 @@ int putRecursive(int node, const std::string& key, int value)
         int idx = contentElements;
         contentArray[idx] = value;
         ++contentElements;
+        printf("idx=%d,~idx=%d\n",idx,~idx);
         return ~idx;
     }
     //get character
     char c = key[0];
+    printf("%c\n",c);
+    //testing:
+    //putRecursive(0, key.substr(1), value);
     uint8_t transitionbyte= static_cast<uint8_t>(c);
     int child = getChild(node, transitionbyte);
-    int newChild = putRecursive(child, key.substr(1), value);
+    printf("From getchild: %d\n",child);
+    uint32_t newChild = putRecursive(child, key.substr(1), value);
+    //printf("New Child: %d\n",newChild);
+    cout << "New Child: "<<newChild <<endl;
     if(child==newChild)
-        return node;
+       return node;
+    //if(isNull(node))//check
+    //    return newChild;//check
     if(isNullOrLeaf(newChild)) // first part of followcontenttransition
     {
-        return expandOrCreateChainNode(newChild, transitionbyte);
+        printf("Inside null or leaf: %d\n",newChild);
+        //cout<<newChild<<endl;
+        //printf("New child: %d\n",newChild);
+        cout << "New Child: "<<newChild <<endl;
+        uint32_t ret = expandOrCreateChainNode(transitionbyte, newChild);
+        cout<< "Return from expand or create: "<<ret<<endl;
+        return ret;
     }
-    //might need to change node with prefix implementations
+    // //might need to change node with prefix implementations
+    // //check if node is null
+    // if(isNull(node))
+    // {
+    //     return expandOrCreateChainNode(transitionbyte,newChild);
+    // }
+    printf("Before attach child: %d\n", child);
     return attachChild(node, transitionbyte, newChild);
     //will return chain as new child in upper level, 
     //then in the upper level will check if newChid is not null or leaf
     // attach child will be called to attach this to parent
     //then return parent
     
+}
+
+int getValue(int node, string key)
+{    
+    if (key.empty()) {
+        printf("Get Value from Content Array\n");
+        //end of key reached
+        //put the content here
+        // int idx = contentElements;
+        // contentArray[idx] = value;
+        // ++contentElements;
+        // printf("idx=%d,~idx=%d\n",idx,~idx);
+        int idx= ~node;
+        cout<<"Node: "<< node<<endl;
+        return contentArray[idx];
+    }
+    //get character
+    char c = key[0];
+    printf("%c\n",c);
+    uint32_t child = getChild(node, c);
+    cout<<"Child: "<<child<<endl;
+    return getValue(child,key.substr(1));
 }
 
 
@@ -639,47 +695,54 @@ int main()
 {
 
     //testing Create Sparse Node
-    contentArray[0]=100;
-    contentArray[1]=200;
-    contentArray[2]=300;
-    // Define a character
-    char c = 'A'; // ASCII value of 'A' is 65
-    uint8_t byte1 = static_cast<uint8_t>(c);
-    uint32_t child1 = reinterpret_cast<uintptr_t>(&contentArray[1]);
-    c = 'B'; // ASCII value of 'A' is 65
-    uint8_t byte2 = static_cast<uint8_t>(c);
-    uint32_t child2 = reinterpret_cast<uintptr_t>(&contentArray[2]);
-    int sparse = CreateSparseNode(byte1, child1, byte2, child2);
+    // contentArray[0]=100;
+    // contentArray[1]=200;
+    // contentArray[2]=300;
+    // // Define a character
+    // char c = 'A'; // ASCII value of 'A' is 65
+    // uint8_t byte1 = static_cast<uint8_t>(c);
+    // uint32_t child1 = reinterpret_cast<uintptr_t>(&contentArray[1]);
+    // c = 'B'; // ASCII value of 'A' is 65
+    // uint8_t byte2 = static_cast<uint8_t>(c);
+    // uint32_t child2 = reinterpret_cast<uintptr_t>(&contentArray[2]);
+    // int sparse = CreateSparseNode(byte1, child1, byte2, child2);
 
-    c = 'D'; // ASCII value of 'A' is 65
-    uint8_t byte3 = static_cast<uint8_t>(c);
-    uint32_t child3 = reinterpret_cast<uintptr_t>(&contentArray[0]);
-    attachChildToSparse(sparse,byte3,child3);
+    // c = 'D'; // ASCII value of 'A' is 65
+    // uint8_t byte3 = static_cast<uint8_t>(c);
+    // uint32_t child3 = reinterpret_cast<uintptr_t>(&contentArray[0]);
+    // attachChildToSparse(sparse,byte3,child3);
 
-    c = 'E'; // ASCII value of 'A' is 65
-    byte3 = static_cast<uint8_t>(c);
-    child3 = reinterpret_cast<uintptr_t>(&contentArray[0]);
-    attachChildToSparse(sparse,byte3,child3);
+    // c = 'E'; // ASCII value of 'A' is 65
+    // byte3 = static_cast<uint8_t>(c);
+    // child3 = reinterpret_cast<uintptr_t>(&contentArray[0]);
+    // attachChildToSparse(sparse,byte3,child3);
 
-    c = 'F'; // ASCII value of 'A' is 65
-    byte3 = static_cast<uint8_t>(c);
-    child3 = reinterpret_cast<uintptr_t>(&contentArray[0]);
-    //attachChildToSparse(sparse,byte3,child3);
+    // c = 'F'; // ASCII value of 'A' is 65
+    // byte3 = static_cast<uint8_t>(c);
+    // child3 = reinterpret_cast<uintptr_t>(&contentArray[0]);
+    // //attachChildToSparse(sparse,byte3,child3);
 
-    c = 'G'; // ASCII value of 'A' is 65
-    byte3 = static_cast<uint8_t>(c);
-    child3 = reinterpret_cast<uintptr_t>(&contentArray[0]);
-    //attachChildToSparse(sparse,byte3,child3);
+    // c = 'G'; // ASCII value of 'A' is 65
+    // byte3 = static_cast<uint8_t>(c);
+    // child3 = reinterpret_cast<uintptr_t>(&contentArray[0]);
+    // //attachChildToSparse(sparse,byte3,child3);
 
-    c = 'X'; // ASCII value of 'A' is 65
-    byte3 = static_cast<uint8_t>(c);
-    child3 = reinterpret_cast<uintptr_t>(&contentArray[2]);
-    //int split = attachChildToSparse(sparse,byte3,child3);
+    // c = 'X'; // ASCII value of 'A' is 65
+    // byte3 = static_cast<uint8_t>(c);
+    // child3 = reinterpret_cast<uintptr_t>(&contentArray[2]);
+    // //int split = attachChildToSparse(sparse,byte3,child3);
 
-    printSparseNode(sparse);
+    // printSparseNode(sparse);
     //getContentFromSplit(split,byte3);
 
     //printStringRecursively("ABCDE");
-    
+    uint32_t root = NONE;
+    root = putRecursive(root, "key", 20);
+    printf("Root = %d\n", root);
 
+    cout << getValue(root, "key")<<endl;
+
+    root  = putRecursive(root, "keep", 42);
+    printf("Root = %d\n", root);
+    cout << getValue(root, "keep")<<endl;
 }
