@@ -3,7 +3,7 @@
 #include <cstdint> // For uint8_t
 #include <cstring> // For memcpy
 #include <cassert>
-
+#include<cmath>
 #define INT unit32_t
 #define BYTE uint8_t
 
@@ -38,16 +38,19 @@ int offset(int pos)
      Reading node content
      */
 
-bool isNull(int node)
+bool isNull(long node)
 {
     return node == NONE;
 }
-bool isLeaf(int node)
+bool isLeaf(long node)
 {
     return node < NONE;
 }
-bool isNullOrLeaf(int node)
+bool isNullOrLeaf(long node)//talk about this tomorrow
 {
+    //int32_t signed_value = -2;
+    //uint32_t unsigned_value = static_cast<uint32_t>(signed_value);
+    //return node == NONE || node >=unsigned_value;
     return node <= NONE;
 }
 bool isExpandableChain(int newChild)
@@ -57,7 +60,8 @@ bool isExpandableChain(int newChild)
     //return newChild > 0 && newChild - 1 > NONE && newOffset > CHAIN_MIN_OFFSET && newOffset <= CHAIN_MAX_OFFSET;
     //what should we set NONE here to?
     //std::cout << "newoffset" << newOffset<< std::endl;
-    bool ret =  newChild > 0; //&& newChild - 1 > NONE && newOffset > CHAIN_MIN_OFFSET && newOffset <= CHAIN_MAX_OFFSET;
+    //bool ret =  newChild > 0 && newChild - 1 > NONE && 
+    bool ret = newOffset > CHAIN_MIN_OFFSET && newOffset <= CHAIN_MAX_OFFSET;
     //cout<<newChild<<" Return from isexpandable: "<<ret<<endl;
     return ret;
 }
@@ -95,9 +99,10 @@ uint32_t createNewChainNode(uint8_t transitionByte, int childPointer)
 
 }
 
-uint32_t expandOrCreateChainNode(uint8_t transitionByte, uint32_t newChild)
+uint32_t expandOrCreateChainNode(uint8_t transitionByte, long newChild)
 {
     cout<<"Inside expand or create: "<<newChild<<endl;
+    cout<<offset(newChild)<<endl;
         if (isExpandableChain(newChild))
         {
             printf("New Child Expandable. \n");
@@ -421,16 +426,18 @@ int attachChildToSparse(int32_t node, uint8_t transitionByte, int newChild)
 }
 int attachChildToChain(int node, uint8_t transitionByte, int newChild) 
 {
+    printf("Inside Attach Child To Chain\n");
     int existingByte;
     uint32_t arrayStartAddress = reinterpret_cast<uintptr_t>(byteArray);
     int existingByteIndex = node - arrayStartAddress;
     std::memcpy(&existingByte, &byteArray[existingByteIndex], sizeof(uint8_t));
-    if (transitionByte == existingByte)
+    //if (transitionByte == existingByte)
     {
         // This will only be called if new child is different from old, and the update is not on the final child
         // where we can change it in place (see attachChild). We must always create something new.
         // If the child is a chain, we can expand it (since it's a different value, its branch must be new and
         // nothing can already reside in the rest of the block).
+        printf("Transition byte equal: %c",static_cast<char>(transitionByte));
         return expandOrCreateChainNode(transitionByte, newChild);
     }
 
@@ -444,6 +451,7 @@ int attachChildToChain(int node, uint8_t transitionByte, int newChild)
         //to the Sparse Node 
         std::memcpy(&existingChild, &byteArray[existingChildIndex], sizeof(int32_t));
     }
+    printf("Changing into Sparse Node\n");
     return CreateSparseNode(existingByte, existingChild, transitionByte, newChild);
 }
 
@@ -483,6 +491,8 @@ int attachChild(int node, uint8_t trans, int newChild)
                 return node;
             } 
             // else pass through
+            //return expandOrCreateChainNode(trans, newChild);
+        
         default:
             cout<<"default "<<offset(node)<<endl;
             return attachChildToChain(node, trans, newChild);
@@ -567,6 +577,9 @@ int getSplitChild(int node, uint8_t transition)
 int getChild(int node, uint8_t transition)
 {
     int off = offset(node);
+    uint32_t arrayStartAddress = reinterpret_cast<uintptr_t>(byteArray);
+    int byte_index = node - arrayStartAddress;
+    cout<<byte_index<<endl;
     switch (off)
     {
         case SPARSE_OFFSET:
@@ -575,27 +588,29 @@ int getChild(int node, uint8_t transition)
             return getSplitChild(node, transition);
         case CHAIN_MAX_OFFSET:
             uint8_t existing_byte;
-            std::memcpy(&existing_byte, &byteArray[CHAIN_MAX_OFFSET], sizeof(uint8_t));
+            //cout<<"inside chain max\n";
+            std::memcpy(&existing_byte, &byteArray[byte_index], sizeof(uint8_t));
             //if (trans != getUnsignedByte(node))
             if(existing_byte!=transition)
                 return NONE;
             //return getInt(node + 1);
             uint32_t childptr;
-            std::memcpy(&childptr, &byteArray[CHAIN_MAX_OFFSET+1], sizeof(uint32_t));
+            std::memcpy(&childptr, &byteArray[byte_index+1], sizeof(uint32_t));
             return childptr;
         default:
             uint8_t existing_byte2;
-            std::memcpy(&existing_byte2, &byteArray[off], sizeof(uint8_t));
+            //int byte_index2 = node - arrayStartAddress;
+            std::memcpy(&existing_byte2, &byteArray[off], sizeof(uint8_t)); //check if off is correct here, need to change
             if (transition != existing_byte2) //if middle transition in chain node does not match
                 return NONE;
             return node + 1; //return next transition in chain node until offset == CHAIN_MAX_OFFSET
     }
 }
-//start as leaf node -> chain -> sparse -> split
-uint32_t putRecursive(int node, const std::string& key, int value) 
+long putRecursive2(uint32_t node, const std::string& key, int value)
 {
+    //cannot insert same key twice - update not supported yet
     if (key.empty()) {
-        printf("Putting Value in Content Array\n");
+        printf("Putting Value in Content Array from putRecursive2\n");
         //end of key reached
         //put the content here
         int idx = contentElements;
@@ -607,63 +622,119 @@ uint32_t putRecursive(int node, const std::string& key, int value)
     //get character
     char c = key[0];
     printf("%c\n",c);
-    //testing:
-    //putRecursive(0, key.substr(1), value);
+
     uint8_t transitionbyte= static_cast<uint8_t>(c);
-    int child = getChild(node, transitionbyte);
-    printf("From getchild: %d\n",child);
-    uint32_t newChild = putRecursive(child, key.substr(1), value);
-    //printf("New Child: %d\n",newChild);
-    cout << "New Child: "<<newChild <<endl;
-    if(child==newChild)
-       return node;
-    //if(isNull(node))//check
-    //    return newChild;//check
-    if(isNullOrLeaf(newChild)) // first part of followcontenttransition
+    cout<<"before get child"<<endl;
+    long child = getChild(node, transitionbyte);
+    long newChild = putRecursive2(child, key.substr(1), value);
+    if(isNullOrLeaf(newChild)) // if child is null too -- check
     {
-        printf("Inside null or leaf: %d\n",newChild);
-        //cout<<newChild<<endl;
-        //printf("New child: %d\n",newChild);
-        cout << "New Child: "<<newChild <<endl;
         uint32_t ret = expandOrCreateChainNode(transitionbyte, newChild);
-        cout<< "Return from expand or create: "<<ret<<endl;
         return ret;
     }
-    // //might need to change node with prefix implementations
-    // //check if node is null
-    // if(isNull(node))
-    // {
-    //     return expandOrCreateChainNode(transitionbyte,newChild);
-    // }
-    printf("Before attach child: %d\n", child);
-    return attachChild(node, transitionbyte, newChild);
-    //will return chain as new child in upper level, 
-    //then in the upper level will check if newChid is not null or leaf
-    // attach child will be called to attach this to parent
-    //then return parent
-    
+
+    if(isNull(node))
+    {
+        return expandOrCreateChainNode(transitionbyte, newChild);
+    }
+    int off_parent = offset(node);
+    int off_child = offset(child);
+    int off_nC = offset(newChild);
+    uint32_t arrayStartAddress = reinterpret_cast<uintptr_t>(byteArray);
+    if(off_parent>=CHAIN_MIN_OFFSET && off_parent<=CHAIN_MAX_OFFSET)
+    {
+            uint8_t existing_byte;
+            int byte_index = node - arrayStartAddress;
+            std::memcpy(&existing_byte, &byteArray[byte_index], sizeof(uint8_t));
+            // if(existing_byte!=transition)
+            //     return NONE;
+            // //return getInt(node + 1);
+            // uint32_t childptr;
+            // std::memcpy(&childptr, &byteArray[byte_index+1], sizeof(uint32_t));
+            // return childptr;
+        return CreateSparseNode(existing_byte, child, transitionbyte, newChild);
+    }
+    else if(off_parent == SPARSE_OFFSET)
+    {
+        return attachChildToSparse(node, transitionbyte, newChild);
+    }
+    else if(off_parent == SPLIT_OFFSET)
+    {
+        attachChildToSplit(node, transitionbyte, newChild);
+        return node;
+    }
 }
+
+
+//start as leaf node -> chain -> sparse -> split
+// long putRecursive(uint32_t node, const std::string& key, int value) 
+// {
+//     if (key.empty()) {
+//         printf("Putting Value in Content Array\n");
+//         //end of key reached
+//         //put the content here
+//         int idx = contentElements;
+//         contentArray[idx] = value;
+//         ++contentElements;
+//         printf("idx=%d,~idx=%d\n",idx,~idx);
+//         return ~idx;
+//     }
+//     //get character
+//     char c = key[0];
+//     printf("%c\n",c);
+//     //testing:
+//     //putRecursive(0, key.substr(1), value);
+//     uint8_t transitionbyte= static_cast<uint8_t>(c);
+//     long child = getChild(node, transitionbyte);
+//     printf("From getchild: %d\n",child);
+//     long newChild = putRecursive(child, key.substr(1), value);
+//     //printf("New Child: %d\n",newChild);
+//     cout << "New Child: "<<newChild <<endl;
+//     if(child==newChild)
+//        return node;
+//     //if(isNull(node))//check
+//     //    return newChild;//check
+//     if(isNullOrLeaf(newChild)) // first part of followcontenttransition
+//     {
+//         printf("Inside null or leaf: %ld\n",newChild);
+//         //cout<<newChild<<endl;
+//         //printf("New child: %d\n",newChild);
+//         cout << "New Child: "<<newChild <<endl;
+//         uint32_t ret = expandOrCreateChainNode(transitionbyte, newChild);
+//         cout<< "Return from expand or create: "<<ret<<endl;
+//         return ret;
+//     }
+//     // //might need to change node with prefix implementations
+//     // //check if node is null
+//     // if(isNull(node))
+//     // {
+//     //     return expandOrCreateChainNode(transitionbyte,newChild);
+//     // }
+//     printf("Before attach child: %ld\n", child);
+//     return attachChild(child, transitionbyte, newChild);
+//     //will return chain as new child in upper level, 
+//     //then in the upper level will check if newChid is not null or leaf
+//     // attach child will be called to attach this to parent
+//     //then return parent
+    
+// }
 
 int getValue(int node, string key)
 {    
     if (key.empty()) {
         printf("Get Value from Content Array\n");
-        //end of key reached
-        //put the content here
-        // int idx = contentElements;
-        // contentArray[idx] = value;
-        // ++contentElements;
-        // printf("idx=%d,~idx=%d\n",idx,~idx);
         int idx= ~node;
         cout<<"Node: "<< node<<endl;
         return contentArray[idx];
+        //return 0;
     }
     //get character
     char c = key[0];
     printf("%c\n",c);
     uint32_t child = getChild(node, c);
-    cout<<"Child: "<<child<<endl;
+    //cout<<"Child: "<<child<<endl;
     return getValue(child,key.substr(1));
+   // return getValue(0,key.substr(1));
 }
 
 
@@ -737,12 +808,23 @@ int main()
 
     //printStringRecursively("ABCDE");
     uint32_t root = NONE;
-    root = putRecursive(root, "key", 20);
-    printf("Root = %d\n", root);
+    root = putRecursive2(root, "sfkhsdlkfhlksdhglk", 20);
+    //printf("Root = %d\n", root);
+    cout << offset(root) << endl;
+    cout << getValue(root, "sfkhsdlkfhlksdhglk")<<endl;
 
-    cout << getValue(root, "key")<<endl;
+    cout<<"Type of node (root): " << offset(root) <<endl;
 
-    root  = putRecursive(root, "keep", 42);
-    printf("Root = %d\n", root);
-    cout << getValue(root, "keep")<<endl;
+    // root  = putRecursive2(root, "keep", 42);
+    // printf("Root = %d\n", root);
+    // cout<<"Type of node (root): " << offset(root) <<endl;
+    // cout << getValue(root, "keep")<<endl;
+
+    // assert((long)&byteArray[0] > NONE);
+    // uint32_t ChainNodeOffset = reinterpret_cast<uintptr_t>(&byteArray[0]);
+    // cout<<sizeof(ChainNodeOffset)<<endl;
+    // uint32_t longval= pow(2,31) + 100;
+    // int lv = -1;
+    // cout<< isNullOrLeaf(lv)<<endl;
+
 }
