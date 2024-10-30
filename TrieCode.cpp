@@ -1,4 +1,7 @@
 #include <iostream>
+#include <fstream>
+#include <sstream>
+#include <string>
 #include <vector>
 #include <cstdint> // For uint8_t
 #include <cstring> // For memcpy
@@ -90,7 +93,7 @@ int createNewChainNode(uint8_t transitionByte, int childIndex)
 
 int expandOrCreateChainNode(uint8_t transitionByte, int existingNode)
 {
-    cout<<"Inside expand or create: "<<existingNode<<endl;
+    //cout<<"Inside expand or create: "<<existingNode<<endl;
     //cout<<offset(existingNode)<<endl;
         if (isExpandableChain(existingNode))
         {
@@ -106,7 +109,7 @@ int expandOrCreateChainNode(uint8_t transitionByte, int existingNode)
         //printf("Creating a new chain node. \n");
         int ret = createNewChainNode(transitionByte, existingNode);
         //printf("new chain node: %d \n",ret);
-        cout<<"new chain node: "<<ret<<endl;
+        //cout<<"new chain node: "<<ret<<endl;
         return ret;
 }
 int createEmptySplitNode()
@@ -114,9 +117,16 @@ int createEmptySplitNode()
     int v = allocatedPos;
     int pos = v+SPLIT_OFFSET;
 
+    // std::memcpy(&byteArray[v], &child1, sizeof(int32_t));
+    // std::memcpy(&byteArray[v+4], &child2, sizeof(int32_t));
+    // std::memcpy(&byteArray[v+8], &byte1, sizeof(uint8_t));
+    // std::memcpy(&byteArray[v+9], &byte2, sizeof(uint8_t));
+    // std::memcpy(&byteArray[pos], &orderWord, sizeof(short));
 
     allocatedPos+=BLOCK_SIZE; // advance the allocatedPos to the next block
 
+    //uint32_t SplitNodeOffset = reinterpret_cast<uintptr_t>(&byteArray[pos]);
+    //return SplitNodeOffset; //return address of the Split node
     return pos;
 }
 
@@ -152,6 +162,7 @@ int splitNodeChildIndex(int trans)
 
 void attachChildToSplit(int node, uint8_t trans, int newChild)
 {
+    //cout<<"transitionByte here:" << static_cast<char>(trans) <<endl;
     int lead_bits = splitNodeMidIndex(trans);
     int lead_position = 16+lead_bits*4;
     int lead_start_index = node-SPLIT_OFFSET+lead_position;
@@ -159,7 +170,7 @@ void attachChildToSplit(int node, uint8_t trans, int newChild)
     std::memcpy(&midNode, &byteArray[lead_start_index], sizeof(int32_t));
     if(midNode == NONE)
     {
-        printf("No entry for mid and tail nodes\n");
+        //printf("No entry for mid and tail nodes\n");
         //no entry for leading 2 bits
         midNode = createEmptySplitNode();
         int mid_bits = splitNodeTailIndex(trans);
@@ -182,7 +193,7 @@ void attachChildToSplit(int node, uint8_t trans, int newChild)
     std::memcpy(&tailNode, &byteArray[mid_start_index], sizeof(int32_t));
     if(tailNode == NONE)
     {
-        printf("No entry for tail node\n");
+        //printf("No entry for tail node\n");
         tailNode = createEmptySplitNode();
         int tail_bits = splitNodeChildIndex(trans);
         int tail_position = tail_bits*4;
@@ -191,7 +202,7 @@ void attachChildToSplit(int node, uint8_t trans, int newChild)
         std::memcpy(&byteArray[mid_start_index], &tailNode, sizeof(int32_t)); //link tail to mid
         return;
     }
-    printf("New child added to tail\n");
+    //printf("New child added to tail\n");
     int tail_bits = splitNodeChildIndex(trans);
     int tail_position = tail_bits*4;
     int tail_start_index = tailNode-SPLIT_OFFSET+tail_position;
@@ -228,21 +239,24 @@ int CreateSparseNode(uint8_t byte1, int child1, uint8_t byte2, int child2)
             uint8_t t = byte1; byte1 = byte2; byte2 = t;
             int temp = child1; child1 = child2; child2 = temp;
         }
-        cout<<"Inside create sparse node: "<<child1<<" "<<child2<<endl;
+        //cout<<"Inside create sparse node: "<<child1<<" "<<child2<<endl;
         
         int v = allocatedPos;
         int pos = v+SPARSE_OFFSET;
         short orderWord = (short)(1*6+0);
-        //cout<<"v:"<<v<<endl;
+
         std::memcpy(&byteArray[v], &child1, sizeof(int32_t));
-        //cout<<byteArray[96]<<endl;
+
         std::memcpy(&byteArray[v+4], &child2, sizeof(int32_t));
+
         std::memcpy(&byteArray[v+SPARSE_CHILD_COUNT*4], &byte1, sizeof(uint8_t));
         std::memcpy(&byteArray[v+SPARSE_CHILD_COUNT*4+1], &byte2, sizeof(uint8_t));
         std::memcpy(&byteArray[pos], &orderWord, sizeof(short));
 
         allocatedPos+=BLOCK_SIZE; // advance the allocatedPos to the next block
 
+        //uint32_t SparseNodeOffset = reinterpret_cast<uintptr_t>(&byteArray[pos]);
+        //return SparseNodeOffset; //return address of the Sparse node
         return pos;
 }
 //Sparse node:
@@ -253,6 +267,7 @@ int attachChildToSparse(int node, uint8_t transitionByte, int newChild)
 {
     int index;
     int smallerCount = 0;
+    
     //uint32_t arrayStartAddress = reinterpret_cast<uintptr_t>(byteArray);
     // first check if this is an update and modify in-place if so
     for (index = 0; index < SPARSE_CHILD_COUNT; ++index)
@@ -281,14 +296,17 @@ int attachChildToSparse(int node, uint8_t transitionByte, int newChild)
     {
             // Node is full. Switch to split
             int split = createEmptySplitNode();
+            //cout<<"Node: "<<node<<" "<<offset(node)<<" "<<static_cast<char>(byteArray[node-1])<<endl;
             for (int i = 0; i < SPARSE_CHILD_COUNT; ++i)
             {
                 uint8_t byte;
-                int byte_index = node - SPARSE_CHILD_COUNT + index;
+                int byte_index = node - SPARSE_CHILD_COUNT + i;
                 std::memcpy(&byte, &byteArray[byte_index], sizeof(uint8_t));
+                //cout<<"byte from sparse:" << static_cast<char>(byte) <<endl;
 
                 int32_t pointer;
-                int ptr_index = node - SPARSE_OFFSET + index*4;
+                int ptr_index = node - SPARSE_OFFSET + i*4;
+                //<<ptr_index<<endl;
                 std::memcpy(&pointer, &byteArray[ptr_index], sizeof(int32_t));
 
                 attachChildToSplit(split,byte,pointer);
@@ -378,6 +396,9 @@ int getChild(int node, uint8_t transition)
         case CHAIN_MAX_OFFSET:
             uint8_t existing_byte;
             existing_byte = byteArray[node];
+            //cout<<"inside chain max\n";
+            //std::memcpy(&existing_byte, &byteArray[node], sizeof(uint8_t));
+            //if (trans != getUnsignedByte(node))
             if(existing_byte!=transition)
                 return NONE;
             //return getInt(node + 1);
@@ -386,84 +407,125 @@ int getChild(int node, uint8_t transition)
             return childptr;
         default:
             uint8_t existing_byte2 = byteArray[node];
+            //int byte_index2 = node - arrayStartAddress;
+            //cout<<"here: "<<off<<endl;
+            //cout << static_cast<char>(byteArray[node])<<endl;
+
+            //std::memcpy(&existing_byte2, &byteArray[node], sizeof(uint8_t)); //check if off is correct here, need to change
             if (transition != existing_byte2) //if middle transition in chain node does not match
                 return NONE;
+            
+            int next = node+1;
+            // if (byteArray[next] == static_cast<uint8_t>(0))
+            // {
+            //     // int32_t childptr;
+            //     // cout << node - offset(node) + CHAIN_MAX_OFFSET<<endl;
+            //     // std::memcpy(&childptr, &byteArray[node - offset(node) + CHAIN_MAX_OFFSET], sizeof(int32_t));
+            //     // return childptr;
+            //     cout << "Next point is null in chain" <<endl;
+            // }
             return node + 1; //return next transition in chain node until offset == CHAIN_MAX_OFFSET
     }
 }
+
+int getChildforPut(int node, uint8_t transition)
+{
+    int off = offset(node);
+    //uint32_t arrayStartAddress = reinterpret_cast<uintptr_t>(byteArray);
+    //int byte_index = node - arrayStartAddress;
+    //cout<<"Inside get child: "<<off<<endl;
+    switch (off)
+    {
+        case SPARSE_OFFSET:
+            
+            return getSparseChild(node, transition);
+        case SPLIT_OFFSET:
+            return getSplitChild(node, transition);
+        case CHAIN_MAX_OFFSET:
+            uint8_t existing_byte;
+            existing_byte = byteArray[node];
+            //cout<<"inside chain max\n";
+            //std::memcpy(&existing_byte, &byteArray[node], sizeof(uint8_t));
+            //if (trans != getUnsignedByte(node))
+            if(existing_byte!=transition)
+                return NONE;
+            //return getInt(node + 1);
+            int32_t childptr;
+            std::memcpy(&childptr, &byteArray[node+1], sizeof(int32_t));
+            return childptr;
+        default:
+            uint8_t existing_byte2 = byteArray[node];
+            //int byte_index2 = node - arrayStartAddress;
+            //cout<<"here: "<<off<<endl;
+            //cout << static_cast<char>(byteArray[node])<<endl;
+
+            //std::memcpy(&existing_byte2, &byteArray[node], sizeof(uint8_t)); //check if off is correct here, need to change
+            if (transition != existing_byte2) //if middle transition in chain node does not match
+                return NONE;
+            
+            int next = node+1;
+            if (byteArray[next] == static_cast<uint8_t>(0))
+            {
+                //cout << "Next point is null in chain" <<endl;
+                int32_t childptr;
+                //cout << node - offset(node) + CHAIN_MAX_OFFSET<<endl;
+                std::memcpy(&childptr, &byteArray[node - offset(node) + CHAIN_MAX_OFFSET + 1], sizeof(int32_t));
+                return childptr;
+                
+            }
+            return node + 1; //return next transition in chain node until offset == CHAIN_MAX_OFFSET
+    }
+}
+
 
 int putRecursive2(int node, const std::string& key, int value)
 {
     //cannot insert same key twice - update not supported yet
     if (key.empty()) {
-        printf("Putting Value in Content Array from putRecursive2\n");
+        //printf("Putting Value in Content Array from putRecursive2\n");
         //end of key reached
         //put the content here
         int idx = contentElements+1;
         contentArray[idx] = value;
         ++contentElements;
-        printf("idx=%d,~idx=%d\n",idx,~idx);
+        //printf("idx=%d,~idx=%d\n",idx,~idx);
         return ~idx;
     }
     //get character
     char c = key[0];
-    printf("%c\n",c);
+    //printf("%c\n",c);
 
     uint8_t transitionbyte= static_cast<uint8_t>(c);
-    //cout<<"before get child"<<endl;
-    int child = getChild(node, transitionbyte);
-    //cout<<"After getchild" <<endl;
+
+    int child = getChildforPut(node, transitionbyte);
+
     int newChild = putRecursive2(child, key.substr(1), value);
-    if(isNullOrLeaf(newChild)) // if child is null too -- check
-    {
-        
-        int32_t ret = expandOrCreateChainNode(transitionbyte, newChild);
-        cout<< "Inside is null or leaf: "<<ret << " "<< offset(ret)<<endl;
-        //cout<<"Transition Byte:"<< static_cast<uint8_t>(transitionbyte)<<endl;
-        return ret;
-    }
+    int off_node = offset(node);
+    //int off_child = offset(child);
+    int off_nC = offset(newChild);
 
     if(isNull(node))
     {
         
         int ret = expandOrCreateChainNode(transitionbyte, newChild);
-        //cout<<"Inside is null Node"<< static_cast<char>(byteArray[ret])<<endl;
         return ret;
     }
-    int off_node = offset(node);
-    //int off_child = offset(child);
-    int off_nC = offset(newChild);
-    //uint32_t arrayStartAddress = reinterpret_cast<uintptr_t>(byteArray);
-    //cout << "Off Node: "<<off_node<<endl;
-    //printf("Character here: %c\n",c);
-    //cout<<"byte at node: "<<static_cast<char>(byteArray[node])<<endl;
-    //cout<<isNull(byteArray[node])<<endl;
-    //cout<<"node value: "<<node<<endl;
+
+
     if(off_node>=CHAIN_MIN_OFFSET && off_node<=CHAIN_MAX_OFFSET)
     {
             uint8_t existing_byte = byteArray[node];
-            cout<<"Is null existing byte: "<<isNull(byteArray[node])<<endl;
             int diff = CHAIN_MAX_OFFSET - off_node;
             int chain_max = node+diff;
-            //cout<<"Node: "<<node<<endl;
-            //cout<<"Existing Byte:"<< static_cast<uint8_t>(existing_byte)<<endl;
-            //cout<<"Transition Byte:"<< static_cast<uint8_t>(transitionbyte)<<endl;
-            //cout<<"Child: "<<child<<endl;
-            //cout<<"New Child: "<<newChild << "off newchild: "<<offset(newChild)<<endl;
 
         if(existing_byte == transitionbyte)
         {
-            //for update - just change the child pointer ---left
-            //suppose ka, ke -- here k, new k
-            //copy the previous branch into a new chain then, I mean break the previous chain into two parts
-            // so you have to update the child pointer to a sparse node with the two different children
-            // and then return the node
-            //cout<<"Child 1:"<< static_cast<uint8_t>(byteArray[child])<<endl;
-            //cout<<"Child 2:"<< static_cast<uint8_t>(byteArray[newChild])<<endl;
 
-            cout<<"here: existing = transition byte"<<endl;
-            if(offset(newChild) == SPARSE_OFFSET) // or newChild!=child -- check if this falls in any case
+            //if(offset(newChild) == SPARSE_OFFSET) // or newChild!=child -- check if this falls in any case
+            if(newChild!=child)
             {
+
+                //covers update too
                 std::memcpy(&byteArray[chain_max+1], &newChild, sizeof(int32_t));
             }
             
@@ -473,74 +535,89 @@ int putRecursive2(int node, const std::string& key, int value)
         }
 
         //before this create a new chain node for the first part
-        //cout << "here: "<< static_cast<char>(byteArray[node])<<static_cast<uint8_t>(transitionbyte)<<endl;
-        //cout<<newChild<<endl;
+
         int childIdx;
         std::memcpy(&childIdx,&byteArray[chain_max+1],sizeof(int32_t));
 
     //check if child is chain or sparse --- act accordingly
-        cout<< "Type of child: "<<offset(childIdx)<<" "<<childIdx<<endl;
-        if (offset(childIdx) == SPARSE_OFFSET)
+
+        if (!isNullOrLeaf(childIdx) && offset(childIdx) == SPARSE_OFFSET)
         {
             if(isNull(existing_byte)) 
             {
-                // no character starting from that point in chain, 
-                //check if character exists in sparse child - one extra level added
-                // int numchild=6;
-                // for(int i = childIdx+SPARSE_BYTES_OFFSET; i<childIdx; i++)
-                // {
-                //     uint8_t byteInSparse = byteArray[i];
-                //     if(transitionbyte == byteInSparse)
-                //     {
-                //         int childOfSparse;
-                //         std::memcpy(&childOfSparse,&byteArray[childIdx+SPARSE_BYTES_OFFSET-(numchild*4)],sizeof(int32_t));
-                //         return putRecursive2(childOfSparse,key.substr(1),value);
-                //     }
-                //     numchild--;
-                // }
-
                 // add to existing sparse child
-                cout<<"Adding child to sparse"<<endl;
+                //"Adding child to sparse"<<endl;
                 return attachChildToSparse(childIdx, transitionbyte, newChild);
             }
-            cout<<"Creating sparse to link to sparse"<<endl;
+            //"Creating sparse to link to sparse"<<endl;
+            //child is sparse
+            //parent is chain
             //if the character exists, convert that into sparse node
-            byteArray[chain_max] = static_cast<uint8_t>(0);
-            for(int i = chain_max-1; i>=node+1;i--)
-            {
-                byteArray[i] = static_cast<uint8_t>(0);
-            }
+            if(isNull(byteArray[node+1])){ //nulll after node -- no more chain
+            // byteArray[chain_max] = static_cast<uint8_t>(0);
+            // for(int i = chain_max-1; i>=node+1;i--)
+            // {
+            //     cout<<i<<endl;
+            //     cout<<static_cast<char>(byteArray[i])<<endl;
+            //     byteArray[i] = static_cast<uint8_t>(0);
+            // }
             byteArray[node] = static_cast<uint8_t>(0);
-//for tire new child not need to be created -- add condition for adding child to sparse
             int ret = CreateSparseNode(existing_byte, childIdx, transitionbyte, newChild);
             return ret;
+            }
+
+
         }    
+        if (!isNullOrLeaf(childIdx) && offset(childIdx) == SPLIT_OFFSET)
+        {
+            if(isNull(existing_byte)) 
+            {
+                // add to existing sparse child
+                attachChildToSplit(childIdx, transitionbyte, newChild);
+                return childIdx;
+            }
+            //"Creating sparse to link to split"
+            //child is split
+            //parent is chain
+            //create sparse to link two chains and then link the child to sparse node
+            //if the character exists, convert that into sparse node
+            if(isNull(byteArray[node+1])){ 
+            // byteArray[chain_max] = static_cast<uint8_t>(0);
+            // for(int i = chain_max-1; i>=node+1;i--)
+            // {
+            //     byteArray[i] = static_cast<uint8_t>(0);
+            // }
+            byteArray[node] = static_cast<uint8_t>(0);
+            int ret = CreateSparseNode(existing_byte, childIdx, transitionbyte, newChild);
+            return ret;
+            }
+        }  
+        if(off_node == CHAIN_MAX_OFFSET)
+        {
+            int childIdx;
+            std::memcpy(&childIdx,&byteArray[chain_max+1],sizeof(int32_t));
+            byteArray[node] = static_cast<uint8_t>(0);
+            int ret = CreateSparseNode(existing_byte, childIdx, transitionbyte, newChild);
+            return ret;
+        }
 
         int newChainNode = createNewChainNode(byteArray[chain_max], childIdx);
         byteArray[chain_max] = static_cast<uint8_t>(0);
         for(int i = chain_max-1; i>=node+1;i--)
         {
-            //cout<<static_cast<uint8_t>(byteArray[i])<<endl;
             newChainNode--;
             byteArray[newChainNode]=byteArray[i];
             byteArray[i] = static_cast<uint8_t>(0);
-            //cout<<static_cast<uint8_t>(byteArray[newChainNode])<<endl;
+
         }
         byteArray[node] = static_cast<uint8_t>(0);
-        
-        //cout<<"creating new sparse node: "<<static_cast<uint8_t>(existing_byte)<<" "<<static_cast<uint8_t>(transitionbyte)<<endl;
-        //cout<<newChainNode<<endl;
-        //cout<<newChild<<endl;
-        //int ret =CreateSparseNode(existing_byte, node+1, transitionbyte, newChild);//check if node/child here
 
         int ret = CreateSparseNode(existing_byte, newChainNode, transitionbyte, newChild);
-        //cout << static_cast<char>(byteArray[ret+SPARSE_BYTES_OFFSET])<<endl;
-        //cout << static_cast<char>(byteArray[ret+SPARSE_BYTES_OFFSET+1])<<endl;
+
         return ret;
     }
     else if(off_node == SPARSE_OFFSET)
     {
-        cout<<"attaching child to sparse"<<endl;
         return attachChildToSparse(node, transitionbyte, newChild);
     }
     else if(off_node == SPLIT_OFFSET)
@@ -554,7 +631,41 @@ int putRecursive2(int node, const std::string& key, int value)
 int getValue(int node, string key)
 {    
     if (key.empty()) {
-        printf("Get Value from Content Array\n");
+        //printf("Get Value from Content Array\n");
+        int idx= ~node;
+        return contentArray[idx];
+        //return 0;
+    }
+    //get character
+    char c = key[0];
+    int child = getChild(node, c);
+
+
+    if(child == NONE)//for sparse child, there won't be any branch with that transition, so we need to recurse again on the child
+    {
+        int off_node = offset(node);
+        if(off_node>=CHAIN_MIN_OFFSET && off_node<=CHAIN_MAX_OFFSET)
+        {
+            int child_start = node + CHAIN_MAX_OFFSET - off_node+1;
+            int child2;
+            std::memcpy(&child2, &byteArray[child_start],  sizeof(int32_t));
+            if(child2!=NONE)
+            {
+                return getValue(child2,key);
+            }
+        }
+    }
+    
+    //cout<<"Child: "<<child<<endl;
+
+    return getValue(child,key.substr(1));
+}
+
+
+int getValue2(int node, string key)
+{    
+    if (key.empty()) {
+        //printf("Get Value from Content Array\n");
         int idx= ~node;
         //cout<<"Node: "<< node<<endl;
         return contentArray[idx];
@@ -564,171 +675,155 @@ int getValue(int node, string key)
     char c = key[0];
     //printf("%c\n",c);
     //cout<<"Node: "<<node<<endl;
-    int child = getChild(node, c);
-    //cout<<child<<" Child type: "<<offset(child)<<endl;
+    int child = getChildforPut(node, c);
 
-    if(child == NONE)//for sparse child, there won't be any branch with that transition, so we need to recurse again on the child
-    {
-        int off_node = offset(node);
-        //cout<<"Child is none: "<<off_node<<endl;
-        if(off_node>=CHAIN_MIN_OFFSET && off_node<=CHAIN_MAX_OFFSET)
-        {
-            int child_start = node + CHAIN_MAX_OFFSET - off_node+1;
-            int child2;
-            std::memcpy(&child2, &byteArray[child_start],  sizeof(int32_t));
-            if(child2!=NONE)
-            {
-                // if(offset(child2) == SPARSE_OFFSET)
-                // {
-                //     cout<<"child is sparse"<<endl;
-                //     //child2 = getChild(child2,c);
-                // }
-                //cout<<"In here, Child: "<<offset(child2)<<endl;
-                //cout<<"key at this point: "<<key<<endl;
-                return getValue(child2,key);
-            }
-        }
-    }
-    
-    //cout<<"Child: "<<child<<endl;
-
-    return getValue(child,key.substr(1));
-   // return getValue(0,key.substr(1));
+    return getValue2(child,key.substr(1));
 }
 
-int main()
-{
-    //int off = offset(BLOCK_SIZE*4+SPLIT_OFFSET);
-    //printf("offset: %d\n",off);
-    // char c = 'A'; // ASCII value of 'A' is 65
-    // uint8_t byte1 = static_cast<uint8_t>(c);
-    // int idx = createNewChainNode(byte1, 10);
-    // cout<<offset(idx)<<endl;
-    // c = 'B'; // ASCII value of 'A' is 65
-    // byte1 = static_cast<uint8_t>(c);
-    // idx = expandOrCreateChainNode(byte1, idx);
-    // cout<<offset(idx)<<endl;
+std::pair<std::string, std::string> splitBySpace(const std::string& str) {
+    std::istringstream iss(str); // Convert the string to a stream
+    std::string first, second;
 
-    int root = 0;
-    root = putRecursive2(root, "try", 120);
-    cout<<"root: "<<root<<endl;
-    int v = getValue(root, "try");
-    cout<<"Value : "<<v<<endl;
-    //cout<<"root: "<<root<<endl;
+    // Extract the first two words from the stream
+    if (iss >> first && iss >> second) {
+        return std::make_pair(first, second); // Return the pair of words
+    } else {
+        return std::make_pair(first, ""); // Return the first word and empty string if no second word is found
+    }
+}
 
-    //root = putRecursive2(root, "tea", 145);
-    root = putRecursive2(root, "trie", 145);
-    // v = getValue(root, "trie");
-    // cout<<"Value : "<<v<<endl;
+int main() {
+    // Open the file workload.txt
+    std::ifstream file("workload.txt");
 
-    root = putRecursive2(root, "tea", 175);
-    v = getValue(root, "tea");
-    cout<<"tea Value : "<<v<<endl;
+    // Check if the file is open
+    if (!file.is_open()) {
+        std::cerr << "Error: Could not open the file workload.txt" << std::endl;
+        return 1; // Return error code
+    }
 
-    root = putRecursive2(root, "tire", 50);
-    cout<<"root: "<<root<<endl;
-    v = getValue(root, "tire");
-    cout<<"tire Value : "<<v<<endl;
+    std::string line;
 
-    // v = getValue(root, "trie");
-    // cout<<"trie Value : "<<v<<endl;
+    // First pass: Read the file line by line
+    std::cout << "First pass:" << std::endl;
+    while (std::getline(file, line)) {
+        //std::cout << line << std::endl;
+        std::pair<std::string, std::string> result = splitBySpace(line);
+        //std::cout << "Key: " << result.first << " Value : " << result.second << std::endl;
+        int value = std::stoi(result.second);
+        root = putRecursive2(root,result.first, value);
+        cout<<"After putting "<<result.first<<endl;
+        int ret_val = getValue(root,result.first);
+        cout<<"Value = "<<ret_val<<endl;
 
-    v = getValue(root, "try");
-    cout<<"try Value : "<<v<<endl;
-
-    v = getValue(root, "trie");
-    cout<<"trie Value : "<<v<<endl;
-
-    v = getValue(root, "tea");
-    cout<<"tea Value : "<<v<<endl;
-
-    //root = putRecursive2(root, "tire", 120);//error when 3 are inserted
-    cout<<"------"<<endl;
-    cout<<"root: "<<root<<endl;
-
-    root = putRecursive2(root, "terrain", 200);
-    cout<<"root: "<<root<<endl;
-    v = getValue(root, "terrain");
-    cout<<"terrain Value : "<<v<<endl;
-
-    v = getValue(root, "tea");
-    cout<<"tea Value : "<<v<<endl;
-
-    // cout<<static_cast<char>(byteArray[root])<<endl;
-    // int child;
-    // std::memcpy(&child, &byteArray[root+CHAIN_MAX_OFFSET - offset(root)+1],  sizeof(int32_t));
-    // cout<<child<<endl;
-    // cout<<static_cast<char>(byteArray[child-SPARSE_CHILD_COUNT])<<endl;
-    // cout<<static_cast<char>(byteArray[child-SPARSE_CHILD_COUNT+1])<<endl;
-    // std::memcpy(&child, &byteArray[child-SPARSE_OFFSET+4],  sizeof(int32_t));
-    // cout<<child<<endl;
-    // cout<<byteArray[child]<<endl;
+    }
+    //root = putRecursive2(root, "abca", 284623);
+    cout<<root<<endl;
+    cout<<offset(root)<<endl;
     
+    // Clear the error state (eof) and return to the beginning of the file
+    file.clear(); // Clear any errors (such as end-of-file)
+    file.seekg(0, std::ios::beg); // Go back to the beginning of the file
+
+    // Second pass: Read the file line by line again
+    std::cout << "\nSecond pass:" << std::endl;
+    while (std::getline(file, line)) {
+        //std::cout << line << std::endl;
+        std::pair<std::string, std::string> result = splitBySpace(line);
+        //std::cout << "Key: " << result.first << " Value : " << result.second << std::endl;
+        int v = getValue2(root, result.first);
+        cout<<result.first<<" Value : "<<v<<endl;
+    }
+    // Close the file
+    file.close();
+
+    return 0; // Success
+}
+
+//read - insert - print - then print all keys together
+/*try 120
+trie 145
+tea 175
+tire 50
+tirk 65
+terrain 200
+extreme 75*/
+
 /*
-    cout<<static_cast<char>(byteArray[root])<<endl;
-    int child;
-    std::memcpy(&child, &byteArray[root+CHAIN_MAX_OFFSET - offset(root)+1],  sizeof(int32_t));
-    //cout<<child<<" "<<offset(child)<<endl;
-    cout<<static_cast<char>(byteArray[child+SPARSE_BYTES_OFFSET])<<endl;
-    
-    int child2, nc;
-    std::memcpy(&child2, &byteArray[child-SPARSE_OFFSET],  sizeof(int32_t));
-    //cout<<child<<" "<<child2<<" "<<byteArray[child2]<<endl;
-    for(int i=child2;i<=child2-offset(child2)+CHAIN_MAX_OFFSET;i++)
-    {
-        cout<<static_cast<char>(byteArray[i])<<endl;
-    }
-    std::memcpy(&nc, &byteArray[child2-offset(child2)+CHAIN_MAX_OFFSET + 1],  sizeof(int32_t));
-    //cout<<child2-offset(child2)+CHAIN_MAX_OFFSET<<endl;
-    cout<<contentArray[~nc]<<endl;
-    cout<<static_cast<char>(byteArray[child+SPARSE_BYTES_OFFSET+1])<<endl;
-    int child3;
-    std::memcpy(&child3, &byteArray[child-SPARSE_OFFSET+4],  sizeof(int32_t));
-    for(int i=child3;i<=child3-offset(child3)+CHAIN_MAX_OFFSET;i++)
-    {
-        cout<<static_cast<char>(byteArray[i])<<endl;
-    }
-    cout<<child3-offset(child3)+CHAIN_MAX_OFFSET<<endl;
-    std::memcpy(&nc, &byteArray[child3-offset(child3)+CHAIN_MAX_OFFSET+1], sizeof(int32_t));
-    cout<<contentArray[~nc]<<endl;
-    //cout<<child<<" "<<child3<<" "<<byteArray[child3]<<endl;
+test 10
+tee 20
+trip 30
+tea 40
+trim 50
 */
 
-
-
-
-//for printing from sparse root:
-
-/*    cout<<static_cast<char>(byteArray[root+SPARSE_BYTES_OFFSET])<<endl;
-    int child2, child3;
-    std::memcpy(&child2, &byteArray[root-SPARSE_OFFSET],  sizeof(int32_t));
-    //cout<<child2<<" "<<byteArray[child2]<<endl;
-    int c_off = offset(child2);
-    int chain_child = child2 - c_off + CHAIN_MAX_OFFSET + 1;
-    for(int i=child2;i<chain_child;i++)
-    {
-        cout<<static_cast<char>(byteArray[i])<<endl;
-    }
-    //cout<<c_off<<" "<<offset(chain_child)<<endl;
-    std::memcpy(&child3, &byteArray[chain_child],  sizeof(int32_t));
-    cout<<child3<<" "<<contentArray[~child3]<<endl;
-
-    cout<<static_cast<char>(byteArray[root+SPARSE_BYTES_OFFSET+1])<<endl;
-    std::memcpy(&child2, &byteArray[root-SPARSE_OFFSET+4],  sizeof(int32_t));
-    //cout<<child2<<" "<<byteArray[child2]<<endl;
-    c_off = offset(child2);
-    chain_child = child2 - c_off + CHAIN_MAX_OFFSET + 1;
-    for(int i=child2;i<chain_child;i++)
-    {
-        cout<<static_cast<char>(byteArray[i])<<endl;
-    }
-    //cout<<c_off<<" "<<offset(chain_child)<<endl;
-    std::memcpy(&child3, &byteArray[chain_child],  sizeof(int32_t));
-    cout<<child3<<" "<<contentArray[~child3]<<endl;
- 
+/*
+batch 10
+bath 20
+bate 30
+baton 40
+bats 50
+batter 60
+batman 70
 */
 
-//workload file -> input to function
-//printing finalize
+/*
+abc 10
+bcd 20
+cde 30
+def 40
+efg 50
+fgh 60
+ghi 70
+*/
+/*
+abca 100
+abcb 200
+abcc 300
+abcd 400
+abce 500
+abcf 600
+abcg 700
+abci 800
+abcj 900
+abck 950
+abcy 650*/
 
-}
+/*
+abca 100
+abcb 200
+abcc 300
+abcd 400
+abce 500
+abcf 600
+abcg 700
+abci 800
+abcj 900
+abck 950
+abcy 650
+abczksf 34
+abcudlf 78
+*/
+
+/*
+batch 10
+bath 20
+bate 30
+baton 40
+bats 50
+batter 60
+batman 70
+abcfa 25
+*/
+
+/*
+batch 10
+bats 20
+baton 30
+catch 40
+cater 50
+cattle 60
+rates 70
+ratify 80
+rattle 90
+*/

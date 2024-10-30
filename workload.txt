@@ -1,0 +1,7 @@
+try 120
+trie 145
+tea 175
+tire 50
+tirk 65
+terrain 200
+extreme 75
