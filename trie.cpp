@@ -1,3 +1,5 @@
+/*I started building the algorithm with this code file... 
+Then moved on to TrieCode.cpp*/
 #include <iostream>
 #include <vector>
 #include <cstdint> // For uint8_t
